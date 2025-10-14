@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 import './Triviagame.css';
 
-const QUESTION_TIME = 15; // seconds
+const QUESTION_TIME = 8; // seconds
 
 const TriviaGame = ({ fetchQuestions, categoryName }) => {
   const [questions, setQuestions] = useState([]);
@@ -14,6 +14,9 @@ const TriviaGame = ({ fetchQuestions, categoryName }) => {
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [playerName, setPlayerName] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+
 
   const navigate = useNavigate();
 
@@ -60,15 +63,52 @@ const TriviaGame = ({ fetchQuestions, categoryName }) => {
   };
 
   if (questions.length === 0) return <p>Loading questions...</p>;
-  if (gameOver)
-   return (
-  <div className="trivia-container">
-    <h2>{categoryName} - Game Over!</h2>
-    <p className="score">Your score: {score} / {questions.length}</p>
-    <button className trivia-button onClick={() => navigate('/')}>Back to Main Page</button>
+ if (gameOver)
+  return (
+    <div className="trivia-container">
+      <h2>{categoryName} - Game Over!</h2>
+      <p className="score">Your score: {score} / {questions.length}</p>
 
-  </div>
-);
+      {!submitted ? (
+        <div className="name-form">
+          <p>Enter your name to save your score:</p>
+          <input
+            type="text"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            placeholder="Your name"
+          />
+          <button
+            className="trivia-button"
+            onClick={() => {
+              if (playerName.trim()) {
+                // Save to localStorage
+                const leaderboard = JSON.parse(localStorage.getItem('leaderboard') || '[]');
+                leaderboard.push({ name: playerName, score });
+                localStorage.setItem('leaderboard', JSON.stringify(leaderboard));
+                setSubmitted(true);
+              }
+            }}
+          >
+            Submit Score
+          </button>
+        </div>
+      ) : (
+        <>
+          <p>Thanks, {playerName}! Your score has been saved.</p>
+          <div className="button-group">
+            <button className="trivia-button" onClick={() => navigate('/')}>
+              Back to Main Page
+            </button>
+            
+          </div>
+        </>
+      )}
+    </div>
+  );
+<button className="trivia-button" onClick={() => navigate('/leaderboard')}>
+              View Leaderboard
+            </button>
 
   const q = questions[current];
 

@@ -4,9 +4,25 @@ import React from 'react';
 import TriviaGame from '../components/Triviagame';
 
 
+const shuffleOptions = (question) => {
+  const options = [...question.options];
+  const correctAnswer = question.answer;
+
+  // Fisher-Yates Shuffle
+  for (let i = options.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+
+  return {
+    ...question,
+    options,
+    answer: correctAnswer, // answer stays as a string and will match the shuffled options
+  };
+};
+
 const fetchChristmasQuestions = async () => {
-  // These could come from an API, file, or database in a real app
-  return [
+  const rawQuestions = [
     {
       question: "What is traditionally placed on top of a Christmas tree?",
       options: ["Star", "Candy Cane", "Bell", "Snowflake"],
@@ -58,6 +74,8 @@ const fetchChristmasQuestions = async () => {
       answer: "December 25",
     },
   ];
+
+  return rawQuestions.map(shuffleOptions);
 };
 
 const ChristmasTrivia = () => {

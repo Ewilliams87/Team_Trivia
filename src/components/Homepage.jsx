@@ -7,6 +7,7 @@ const HomePage = () => {
 
   const categories = [
     { name: 'Christmas', path: '/christmas' },
+    // Add more categories here
   ];
 
   return (
@@ -22,6 +23,14 @@ const HomePage = () => {
             {cat.name}
           </button>
         ))}
+
+        {/* Leaderboard Button */}
+        <button
+          className="game-button leaderboard-button"
+          onClick={() => navigate('/leaderboard')}
+        >
+          View Leaderboard
+        </button>
       </div>
     </div>
   );
