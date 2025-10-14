@@ -6,7 +6,7 @@ const HomePage = () => {
   const navigate = useNavigate();
 
   const categories = [
-    { name: 'All About Christmas', path: '/christmas' },
+    { name: 'Christmas', path: '/christmas' },
   ];
 
   return (
