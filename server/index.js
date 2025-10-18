@@ -1,11 +1,11 @@
 import express from 'express';
-import http from 'http';
+import https from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import fetch from 'node-fetch';
 
 const app = express();
-const server = http.createServer(app);
+const server = https.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 const PORT = 3001;
 
