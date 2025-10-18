@@ -19,7 +19,7 @@ const AdminAuth = () => {
 
     if (name === ADMIN_CREDENTIALS.name && password === ADMIN_CREDENTIALS.password) {
       localStorage.setItem('adminAuth', JSON.stringify({ name }));
-      navigate('/leaderboard');
+      navigate('/gamemaster');
     } else {
       setError('Invalid name or password');
     }

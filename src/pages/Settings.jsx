@@ -27,12 +27,7 @@ const Settings = () => {
 
 return (    
    <div>
-        <button
-          className="game-button leaderboard-button"
-          onClick={() => navigate('/leaderboard')}
-        >
-          View Leaderboard
-        </button>
+        
 
 <button className="trivia-button" onClick={() => navigate('/')}>
         Back to Main Page

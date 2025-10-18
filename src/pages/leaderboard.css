@@ -1,0 +1,93 @@
+/* Leaderboard.css */
+
+.leaderboard-container {
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 20px 30px;
+  background: #f7f9fc;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.leaderboard-container h1 {
+  font-size: 2rem;
+  margin-bottom: 10px;
+  color: #2c3e50;
+}
+
+.leaderboard-container p {
+  font-size: 1rem;
+  margin-bottom: 20px;
+  color: #34495e;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 20px 0;
+}
+
+ul li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+  padding: 12px 15px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.05);
+  transition: transform 0.2s;
+}
+
+ul li:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+}
+
+.trivia-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background-color: #3498db;
+  color: white;
+  font-size: 1rem;
+  margin: 10px 5px;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.2s;
+}
+
+.trivia-button:hover {
+  background-color: #2980b9;
+  transform: translateY(-2px);
+}
+
+.trivia-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+.logout-button {
+  background-color: #e74c3c;
+}
+
+.logout-button:hover {
+  background-color: #c0392b;
+}
+
+.loading,
+.error {
+  font-size: 1rem;
+  margin: 20px 0;
+}
+
+.loading {
+  color: #3498db;
+  font-weight: bold;
+}
+
+.error {
+  color: #e74c3c;
+  font-weight: bold;
+}

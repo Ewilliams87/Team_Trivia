@@ -1,123 +1,82 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import './Triviagame.css';
+import { io } from 'socket.io-client';
 import { BACKEND_URL } from '../config';
+import './Triviagame.css';
 
-const QUESTION_TIME = 8; // seconds
+const socket = io(BACKEND_URL);
+const QUESTION_TIME = 8;
 
-const TriviaGame = ({ fetchQuestions, categoryName }) => {
-  const [questions, setQuestions] = useState([]);
-  const [current, setCurrent] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
-  const [score, setScore] = useState(0);
-  const [gameOver, setGameOver] = useState(false);
-  const [selectedAnswer, setSelectedAnswer] = useState(null);
+const TriviaGame = ({ categoryName }) => {
+  const navigate = useNavigate();
   const [playerName, setPlayerName] = useState('');
   const [started, setStarted] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [score, setScore] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [showEndModal, setShowEndModal] = useState(false);
-  const [endedEarly, setEndedEarly] = useState(false);
 
-  const navigate = useNavigate();
-
-
-  // Load questions
   useEffect(() => {
-    const loadQuestions = async () => {
-      const data = await fetchQuestions();
-      setQuestions(data);
+    // Listen for questions from master
+    socket.on('new-question', ({ question, duration }) => {
+      setCurrentQuestion(question);
+      setTimeLeft(duration || QUESTION_TIME);
+      setSelectedAnswer(null);
+    });
+
+    // Listen for game over
+    socket.on('game-over', () => setGameOver(true));
+
+    return () => {
+      socket.off('new-question');
+      socket.off('game-over');
     };
-    loadQuestions();
-  }, [fetchQuestions]);
+  }, []);
 
   // Countdown timer
   useEffect(() => {
-    if (!started || gameOver) return;
-    if (timeLeft <= 0) {
-      nextQuestion();
-      return;
-    }
+    if (!started || gameOver || !currentQuestion) return;
+    if (timeLeft <= 0) return;
     const timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearTimeout(timer);
-  }, [timeLeft, started, gameOver]);
+  }, [timeLeft, started, currentQuestion, gameOver]);
 
-  const handleAnswer = (selected) => {
-    setSelectedAnswer(selected);
-    const isCorrect = selected === questions[current].answer;
-    if (isCorrect) setScore((s) => s + 1);
-
-    setTimeout(() => {
-      nextQuestion();
-      setSelectedAnswer(null);
-    }, 1000);
+  const handleAnswer = (opt) => {
+    setSelectedAnswer(opt);
+    if (opt === currentQuestion.answer) setScore((s) => s + 1);
+    socket.emit('submit-answer', { player: playerName, answer: opt, correct: opt === currentQuestion.answer });
   };
 
-  const nextQuestion = () => {
-    if (current + 1 < questions.length) {
-      setCurrent((c) => c + 1);
-      setTimeLeft(QUESTION_TIME);
-    } else {
-      setGameOver(true);
+  const saveScore = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/save-score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: playerName, score, category: categoryName }),
+      });
+      await res.json();
+      setSubmitted(true);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save score');
     }
   };
-
-  const confirmEndGame = () => setShowEndModal(true);
-  const handleConfirmEnd = () => {
-    setShowEndModal(false);
-    setEndedEarly(true);
-    setGameOver(true);
-  };
-  const handleCancelEnd = () => setShowEndModal(false);
-
-  // ✅ Save score using your backend
-const saveScore = async () => {
-  console.log('Attempting to save score:', { name: playerName, score, category: categoryName });
-
-  try {
-    const res = await fetch(`${BACKEND_URL}/save-score`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: playerName,
-        score,
-        category: categoryName,
-      }),
-    });
-
-    const data = await res.json();
-    console.log('✅ Score saved via backend:', data);
-    setSubmitted(true);
-  } catch (err) {
-    console.error('❌ Error saving score:', err);
-    alert('Error saving score, please try again.');
-  }
-};
-
-
-  if (questions.length === 0) return <p>Loading questions...</p>;
 
   if (!started) {
     return (
       <div className="trivia-container">
         <h1>{categoryName} Trivia</h1>
-        <p>Please enter your name to begin:</p>
         <input
-          type="text"
+          placeholder="Your Name"
           value={playerName}
           onChange={(e) => setPlayerName(e.target.value)}
-          placeholder="Your name"
-          className="name-input"
         />
-        <button
-          className="trivia-button"
-          disabled={!playerName.trim()}
-          onClick={() => setStarted(true)}
-        >
-          Start Game
+        <button disabled={!playerName.trim()} onClick={() => setStarted(true)}>
+          Join Game
         </button>
-        <button className="trivia-button" onClick={() => navigate('/')}>
-          Home
-        </button>
+        <button onClick={() => navigate('/')}>Home</button>
       </div>
     );
   }
@@ -125,91 +84,44 @@ const saveScore = async () => {
   if (gameOver) {
     return (
       <div className="trivia-container">
-        <h2>{categoryName} - Game Over!</h2>
-        <p className="score">
-          {playerName}, your score: {score} / {questions.length}
-        </p>
-
-        {!submitted && !endedEarly ? (
-          <div className="name-form">
-            <button className="trivia-button" onClick={saveScore}>
-              Save Score
-            </button>
-          </div>
-        ) : endedEarly ? (
-          <>
-            <p>Your game was ended early. Score not saved.</p>
-            <button className="trivia-button" onClick={() => navigate('/')}>
-              Back to Main Page
-            </button>
-          </>
+        <h1>Game Over</h1>
+        <p>{playerName}, your score: {score}</p>
+        {!submitted ? (
+          <button onClick={saveScore}>Save Score</button>
         ) : (
-          <>
-            <p>Thanks, {playerName}! Your score has been saved.</p>
-            <button className="trivia-button" onClick={() => navigate('/')}>
-              Back to Main Page
-            </button>
-          </>
+          <p>Score saved!</p>
         )}
+        <button onClick={() => navigate('/')}>Home</button>
       </div>
     );
   }
 
-  const q = questions[current];
+  if (!currentQuestion) return <p>Waiting for the game master to start...</p>;
 
   return (
     <div className="trivia-container">
-      <h1>{categoryName} Trivia</h1>
-      <p><strong>Player:</strong> {playerName}</p>
-      <p className="timer"><strong>Time Left:</strong> {timeLeft}s</p>
-      <h2>{q.question}</h2>
-
+      <h2>{currentQuestion.question}</h2>
+      <p>Time left: {timeLeft}s</p>
       <div className="options">
-        {q.options.map((opt, i) => {
-          const labels = ['A', 'B', 'C', 'D'];
-          const isSelected = selectedAnswer === opt;
-          const isCorrect = opt === q.answer;
-
-          let buttonClass = '';
-          if (selectedAnswer) {
-            if (isSelected && isCorrect) buttonClass = 'correct';
-            else if (isSelected && !isCorrect) buttonClass = 'incorrect';
-            else if (isCorrect) buttonClass = 'correct';
-          }
-
-          return (
-            <button
-              key={i}
-              className={buttonClass}
-              onClick={() => handleAnswer(opt)}
-              disabled={!!selectedAnswer}
-            >
-              <strong>{labels[i]}.</strong> {opt}
-            </button>
-          );
-        })}
+        {currentQuestion.options.map((opt, i) => (
+          <button
+            key={i}
+            disabled={!!selectedAnswer}
+            className={
+              selectedAnswer
+                ? opt === currentQuestion.answer
+                  ? 'correct'
+                  : opt === selectedAnswer
+                  ? 'incorrect'
+                  : ''
+                : ''
+            }
+            onClick={() => handleAnswer(opt)}
+          >
+            {opt}
+          </button>
+        ))}
       </div>
-
-      <button className="trivia-button end-game-button" onClick={confirmEndGame}>
-        End Game
-      </button>
-
-      {showEndModal && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <h3>End Game?</h3>
-            <p>Are you sure you want to end the game now?</p>
-            <div className="modal-buttons">
-              <button className="confirm-btn" onClick={handleConfirmEnd}>
-                Yes, End Game
-              </button>
-              <button className="cancel-btn" onClick={handleCancelEnd}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

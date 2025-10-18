@@ -1,0 +1,73 @@
+.player-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: radial-gradient(circle at top, #243b55, #141e30);
+  color: #fff;
+  font-family: 'Poppins', sans-serif;
+}
+
+.waiting-text {
+  font-size: 1.2rem;
+  color: #ccc;
+}
+
+.question-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 30px;
+  width: 90%;
+  max-width: 600px;
+  text-align: center;
+  box-shadow: 0 0 15px rgba(0,0,0,0.3);
+}
+
+.question-card h2 {
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+}
+
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.option-btn {
+  background: #3a86ff;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.option-btn:hover {
+  background: #4895ef;
+  transform: translateY(-2px);
+}
+
+.option-btn.selected {
+  background: #ffb703;
+  color: #000;
+}
+
+.option-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.timer {
+  margin-top: 15px;
+  font-size: 1.2rem;
+}
+
+.locked-text {
+  margin-top: 10px;
+  font-weight: 600;
+  color: #ffb703;
+}

@@ -6,13 +6,14 @@ const HomePage = () => {
   const navigate = useNavigate();
 
   const categories = [
-    { name: 'Christmas', path: '/christmas' },
+    { name: 'Player', path: '/playercomponent' },
+    { name: 'Game Master', path: '/admin' },
     // Add more categories here
   ];
 
   return (
     <div className="homepage-container">
-      <h1>Select Your Trivia Game</h1>
+      <h1>Select Your Role</h1>
       <div className="button-container">
         {categories.map((cat) => (
           <button
