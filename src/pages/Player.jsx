@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 import { BACKEND_URL } from '../config';
-import './Player.css';
+import './player.css';
 import confetti from 'canvas-confetti';
 
 const socket = io(BACKEND_URL);
