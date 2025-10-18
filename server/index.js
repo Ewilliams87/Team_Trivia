@@ -15,6 +15,7 @@ app.use(express.json());
 // ------------------- REST Endpoints -------------------
 
 app.post('/save-score', async (req, res) => {
+  
   const { playerId, name, score, category } = req.body;
   try {
     // Send to Google Apps Script
