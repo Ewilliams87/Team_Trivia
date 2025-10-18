@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
-import './Leaderboard.css';
+import './leaderboard.css';
 
 const Leaderboard = () => {
   const navigate = useNavigate();
