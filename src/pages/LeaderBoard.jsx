@@ -1,6 +1,7 @@
 // pages/Leaderboard.js
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { BACKEND_URL } from '../config';
 
 const Leaderboard = () => {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ const Leaderboard = () => {
     setAdminName(authData.name);
 
     // ✅ Fetch scores from backend
-    fetch('http://localhost:3001/scores') // your Express endpoint
+    fetch(`${BACKEND_URL}/scores`) // your Express endpoint
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         return res.json();

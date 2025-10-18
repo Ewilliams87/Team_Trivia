@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Triviagame.css';
+import { BACKEND_URL } from '../config';
 
 const QUESTION_TIME = 8; // seconds
 
@@ -73,7 +74,7 @@ const saveScore = async () => {
   console.log('Attempting to save score:', { name: playerName, score, category: categoryName });
 
   try {
-    const res = await fetch('http://localhost:3001/save-score', {
+    const res = await fetch(`${BACKEND_URL}/save-score`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import TriviaGame from '../components/Triviagame';
+import { BACKEND_URL } from '../config';
 
 
 const shuffleOptions = (question) => {
@@ -24,7 +25,7 @@ const shuffleOptions = (question) => {
 
 const fetchChristmasQuestions = async () => {
   try {
-    const response = await fetch('http://localhost:3001/questions');
+    const response = await fetch(`${BACKEND_URL}/questions`);
     if (!response.ok) throw new Error('Failed to fetch questions');
     const rawQuestions = await response.json();
 
