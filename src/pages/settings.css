@@ -1,0 +1,49 @@
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 20px;
+  text-align: center;
+}
+
+.color-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.color-input {
+  width: 80px;
+  height: 40px;
+  border: none;
+  cursor: pointer;
+}
+
+.reset-button {
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.reset-button:hover {
+  background-color: #c0392b;
+}
+
+.leaderboard-button {
+  padding: 10px 20px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.leaderboard-button:hover {
+  background-color: #2980b9;
+}

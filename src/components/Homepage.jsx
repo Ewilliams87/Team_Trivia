@@ -24,13 +24,17 @@ const HomePage = () => {
           </button>
         ))}
 
-        {/* Leaderboard Button */}
-        <button
-          className="game-button leaderboard-button"
-          onClick={() => navigate('/leaderboard')}
+        
+       
+       {/* Settings Button */}
+       <button
+          className="game-button settings-button"
+          onClick={() => navigate('/settings')}
         >
-          View Leaderboard
+          Settings
         </button>
+
+
       </div>
     </div>
   );
