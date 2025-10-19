@@ -20,7 +20,7 @@ app.post('/save-score', async (req, res) => {
   try {
     // Send to Google Apps Script
     const response = await fetch(
-      'https://script.google.com/macros/s/AKfycbxlYdwBPkduNiX2CyMkejesFNAr_goMEzlyRl4vSv3_uc4FcgDmh6My9GlFvtgvtcr7pA/exec',
+      'https://script.google.com/macros/s/AKfycbxm5wPWW5PXZzwdnNLZizfLejxywlCpfD6qqKBBSMBusmmGI1BuUTdY4wHEW-cpm8U2Ww/exec',
       {
         method: 'POST',
         body: JSON.stringify({ playerId, name, score, category }),
@@ -48,13 +48,16 @@ app.post('/save-score', async (req, res) => {
 app.get('/scores', async (req, res) => {
   try {
     const response = await fetch(
-      'https://script.google.com/macros/s/AKfycbxlYdwBPkduNiX2CyMkejesFNAr_goMEzlyRl4vSv3_uc4FcgDmh6My9GlFvtgvtcr7pA/exec'
+      'https://script.google.com/macros/s/AKfycbyhNPma6ozYcMSJRScH52q340scvGvK2VXcbb0o9Y4IVXOT-t49q2MD7B9GWwln7XKfaA/exec?endpoint=scores'
     );
     const contentType = response.headers.get('content-type');
     let data;
 
     if (contentType && contentType.includes('application/json')) {
       data = await response.json();
+      
+     
+
       res.json(data);
     } else {
       const text = await response.text();
@@ -67,16 +70,36 @@ app.get('/scores', async (req, res) => {
   }
 });
 
+
+
+
 app.get('/questions', async (req, res) => {
   try {
-    const response = await fetch('https://script.google.com/macros/s/AKfycbxm5wPWW5PXZzwdnNLZizfLejxywlCpfD6qqKBBSMBusmmGI1BuUTdY4wHEW-cpm8U2Ww/exec');
+    const { category } = req.query; // e.g. /questions?category=Christmas
+    const defaultCategory = 'Christmas'; // fallback sheet name
+
+    // Base Google Apps Script URL
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbxm5wPWW5PXZzwdnNLZizfLejxywlCpfD6qqKBBSMBusmmGI1BuUTdY4wHEW-cpm8U2Ww/exec';
+
+    // Always send a category to Apps Script
+    const url = `${scriptUrl}?category=${encodeURIComponent(category || defaultCategory)}`;
+
+    const response = await fetch(url);
     const sheetData = await response.json();
+
+    // If Apps Script returned an error object, send empty array instead
+    if (!Array.isArray(sheetData)) {
+      console.warn('Apps Script returned invalid data:', sheetData);
+      return res.json([]);
+    }
+
     res.json(sheetData);
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching questions:', err);
     res.status(500).json({ status: 'error', message: err.message });
   }
 });
+
 
 // ------------------- Socket.IO -------------------
 
@@ -87,8 +110,17 @@ let correctPlayers = []; // Track players who answered correctly for current que
 io.on('connection', (socket) => {
   console.log('✅ New client connected:', socket.id);
 
+
+const playerSockets = {}; // { playerId: socketId }
+
   // --- Player joins ---
   socket.on('join-game', ({ name, isMaster, playerId }) => {
+
+    const oldSocketId = playerSockets[playerId];
+  if (oldSocketId && players[oldSocketId]) {
+    console.log(`♻ Reconnecting player ${name}, removing old socket ${oldSocketId}`);
+    delete players[oldSocketId];
+  }
   players[socket.id] = { name, score: 0, isMaster, playerId }; // <-- add playerId here
   console.log(`🎮 Player joined: ${name} (Master: ${isMaster}) [${socket.id}], UUID: ${playerId}`);
   socket.emit('joined', { id: socket.id, name, isMaster, playerId });
@@ -127,6 +159,13 @@ socket.on('submit-answer', async ({answer,playerId}) => {
 
     // Add to correct players list
     if (!correctPlayers.includes(player.name)) correctPlayers.push(player.name);
+
+    // --- Immediately notify Game Master ---
+    const masterSocketId = Object.keys(players).find(id => players[id].isMaster);
+    if (masterSocketId) {
+      io.to(masterSocketId).emit('players-correct', correctPlayers);
+      console.log('📢 Players who answered correctly (live):', correctPlayers);
+    }
 
     // --- Update Google Sheet via your Apps Script ---
     try {

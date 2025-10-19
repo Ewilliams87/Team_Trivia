@@ -17,54 +17,91 @@ const GameMasterDashboard = () => {
   const [players, setPlayers] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'leaderboard', 'players'
   const [correctPlayers, setCorrectPlayers] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
 
+  // Static categories list (can manually add more)
+  const categories = ['', 'Christmas', 'Halloween', 'Thanksgiving'];
 
-// --- Register Game Master once ---
-useEffect(() => {
-  socket.emit('join-game', { name: adminName, isMaster: true });
-  console.log(`🎮 Master ${adminName} registering`);
-}, []);
+  // Initialize questions cache from localStorage
+  const [questionsCache, setQuestionsCache] = useState(() => {
+    const savedCache = localStorage.getItem('questionsCache');
+    return savedCache ? JSON.parse(savedCache) : {};
+  });
 
-
-  // --- Load questions from backend (Google Sheets) ---
+  // Persist cache to localStorage
   useEffect(() => {
-    const fetchQuestions = async () => {
+    localStorage.setItem('questionsCache', JSON.stringify(questionsCache));
+  }, [questionsCache]);
+
+  // --- Register Game Master once ---
+  useEffect(() => {
+    socket.emit('join-game', { name: adminName, isMaster: true });
+  }, []);
+
+  // --- Load questions with cache ---
+  useEffect(() => {
+    const fetchQuestions = async (category = selectedCategory) => {
+      if (questionsCache[category]) {
+        setQuestions(questionsCache[category]); // use cached questions
+        return;
+      }
+
       try {
-        const res = await fetch(`${BACKEND_URL}/questions`);
+        const url =
+          category === 'All'
+            ? `${BACKEND_URL}/questions`
+            : `${BACKEND_URL}/questions?category=${encodeURIComponent(category)}`;
+
+        const res = await fetch(url);
         const data = await res.json();
-        setQuestions(data);
+
+        if (Array.isArray(data)) {
+          setQuestions(data);
+          setQuestionsCache(prev => ({ ...prev, [category]: data })); // cache results
+        } else {
+          console.error('Unexpected response format:', data);
+          setQuestions([]);
+        }
       } catch (err) {
         console.error('Error fetching questions:', err);
+        setQuestions([]);
       }
     };
-    fetchQuestions();
-  }, []);
+
+    fetchQuestions(selectedCategory);
+  }, [selectedCategory]); // removed questionsCache dependency
+
+  // --- Filtered questions ---
+  const filteredQuestions = selectedCategory === 'All'
+    ? questions
+    : questions.filter(q => q.Category === selectedCategory);
 
   // --- Load leaderboard ---
   const fetchLeaderboard = async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/scores`);
-      const data = await res.json();
-      const sorted = data.sort((a, b) => b.Score - a.Score);
-      setLeaderboard(sorted);
-    } catch (err) {
-      console.error('Error fetching leaderboard:', err);
-    }
-  };
+  try {
+    const res = await fetch(`${BACKEND_URL}/scores`);
+    const data = await res.json();
+    const sorted = data.sort((a, b) => b.score - a.score);
+    setLeaderboard(sorted);
+  } catch (err) {
+    console.error('Error fetching leaderboard:', err);
+  }
+};
+
 
   // --- Listen for connected players ---
- useEffect(() => {
-  const handlePlayersUpdate = (playerList) => {
-    console.log('[SOCKET] Updated players:', playerList);
-    setPlayers(playerList);
-  };
+  useEffect(() => {
+    const handlePlayersUpdate = (playerList) => {
+      console.log('[SOCKET] Updated players:', playerList);
+      setPlayers(playerList);
+    };
 
-  socket.on('players-update', handlePlayersUpdate);
+    socket.on('players-update', handlePlayersUpdate);
 
-  return () => {
-    socket.off('players-update', handlePlayersUpdate);
-  };
-}, []);
+    return () => {
+      socket.off('players-update', handlePlayersUpdate);
+    };
+  }, []);
 
   // --- Timer countdown ---
   useEffect(() => {
@@ -76,25 +113,28 @@ useEffect(() => {
   // --- Send question to players ---
   const sendQuestion = () => {
     if (!selectedQuestion) return alert('Please select a question to send.');
-    console.log('Sending question to players:', selectedQuestion);
+
+    setCorrectPlayers([]); // reset correct players
+
     socket.emit('sendingGame-question', { question: selectedQuestion, duration: 10 });
     setTimer(10);
   };
 
-useEffect(() => {
-  const handleCorrectPlayers = (list) => {
-    console.log('[SOCKET] Players who got it right:', list);
-    setCorrectPlayers(list);
-  };
+  // --- Listen for correct players ---
+  useEffect(() => {
+    const handleCorrectPlayers = (list) => {
+      setCorrectPlayers(list);
+    };
 
-  socket.on('players-correct', handleCorrectPlayers);
+    socket.on('players-correct', handleCorrectPlayers);
 
-  return () => {
-    socket.off('players-correct', handleCorrectPlayers);
-  };
-}, []);
+    return () => {
+      socket.off('players-correct', handleCorrectPlayers);
+    };
+  }, []);
 
- const handleLogout = () => {
+  // --- Logout handler ---
+  const handleLogout = () => {
     localStorage.removeItem('adminAuth');
     navigate('/');
   };
@@ -114,24 +154,42 @@ useEffect(() => {
       {activeTab === 'dashboard' && (
         <div className="dashboard-panel">
           <h2>Select a Question</h2>
-          {questions.length > 0 ? (
+          <p>⏱ Timer: {timer}s</p>
+
+          {/* Category Selector */}
+          <div className="category-select">
+            <label htmlFor="category">Choose a Category: </label>
+            <select
+              id="category"
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+            >
+              {categories.map((cat, idx) => (
+                <option key={idx} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Question List */}
+          {filteredQuestions.length > 0 ? (
             <ul className="question-list">
-              {questions.map((q, index) => (
+              {filteredQuestions.map((q, index) => (
                 <li
                   key={index}
                   className={`question-item ${selectedQuestion === q ? 'selected' : ''}`}
                   onClick={() => setSelectedQuestion(q)}
                 >
                   <strong>Q{index + 1}:</strong> {q.Question}
+                  <div className="question-category">📂 {q.Category}</div>
                 </li>
               ))}
             </ul>
           ) : (
-            <p>Loading questions...</p>
+            <p>No questions available for this category.</p>
           )}
+
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
             <button onClick={sendQuestion}>Send Selected Question</button>
-            {timer > 0 && <p>⏱ Timer: {timer}s</p>}
           </div>
         </div>
       )}
@@ -157,34 +215,37 @@ useEffect(() => {
 
       {/* --- Players Panel --- */}
       {activeTab === 'players' && (
-  <div className="dashboard-panel">
-    <div className='player-panel'>
-    <h2>🧑‍🤝‍🧑 Connected Players</h2>
-    {players.length > 0 ? (
-      <ul>
-        {players.map((player, idx) => (
-          <li key={idx}>
-            {idx + 1}. {player.name} {player.isMaster && '🎮 (Master)'} - {player.score} pts
-          </li>
-        ))}
-      </ul>
-    ) : (
-      <p>No players connected</p>
-    )}
-    </div>
-</div>
-)}
- {/* --- Correct Players Panel --- */}
-{activeTab === 'dashboard' && correctPlayers.length > 0 && (
-  <div className="correct-players-panel">
-    <h4>🎉 Players Who Answered Correctly:</h4>
-    <ul>
-      {correctPlayers.map((name, idx) => (
-        <li key={idx}>{idx + 1}. {name}</li>
-      ))}
-    </ul>
-  </div>
-)}
+        <div className="dashboard-panel">
+          <div className='player-panel'>
+            <h2>🧑‍🤝‍🧑 Connected Players</h2>
+            {players.length > 0 ? (
+              <ul>
+                {players.map((player, idx) => (
+                  <li key={idx}>
+                    {idx + 1}. {player.name} {player.isMaster && '🎮 (Master)'} - {player.score} pts
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No players connected</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- Correct Players Panel --- */}
+      {activeTab === 'dashboard' && correctPlayers.length > 0 && (
+        <div className="correct-players-panel">
+          <h4>🎉 Players Who Answered Correctly:</h4>
+          <ul>
+            {correctPlayers.map((player, idx) => (
+              <li key={idx}>
+                {idx + 1}. {typeof player === 'string' ? player : player.name}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <button className="trivia-button logout-button" onClick={handleLogout}>
         Logout
