@@ -108,6 +108,14 @@ const handleOptionClick = (option) => {
   socket.emit('submit-answer', { answer: option, playerId });
 };
 
+const logout = () => {
+ 
+  window.location.href = '/';
+};
+
+
+
+
 
   // --- Register player ---
   const handleRegister = () => {
@@ -192,16 +200,9 @@ const handleOptionClick = (option) => {
           )}
         </div>
       )}
-      <button
-        className="logout-btn"
-        onClick={() => {
-          localStorage.removeItem('playerName');
-          localStorage.removeItem('playerId');
-          window.location.reload();
-        }}
-      >
-        Logout
-      </button>
+      <button className="logout-btn" onClick={logout}>
+  Logout
+</button>
     </div>
   );
 };
