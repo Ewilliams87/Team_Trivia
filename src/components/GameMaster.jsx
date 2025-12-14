@@ -23,15 +23,11 @@ const GameMasterDashboard = () => {
   const categories = ['', 'Christmas', 'Halloween', 'Thanksgiving'];
 
   // Initialize questions cache from localStorage
-  const [questionsCache, setQuestionsCache] = useState(() => {
-    const savedCache = localStorage.getItem('questionsCache');
-    return savedCache ? JSON.parse(savedCache) : {};
-  });
+  const [questionsCache, setQuestionsCache] = useState({});
 
-  // Persist cache to localStorage
-  useEffect(() => {
-    localStorage.setItem('questionsCache', JSON.stringify(questionsCache));
-  }, [questionsCache]);
+  
+
+  
 
   // --- Register Game Master once ---
   useEffect(() => {
