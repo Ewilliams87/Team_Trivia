@@ -13,6 +13,22 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
+
+
+
+app.post('/admin/login', (req, res) => {
+  const { password } = req.body;
+
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Invalid password' });
+  }
+
+  res.json({ success: true });
+});
+
+
+
+
 // ------------------- REST Endpoints -------------------
 
 // Save or update player score
