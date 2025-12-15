@@ -6,145 +6,153 @@ import { BACKEND_URL } from '../config';
 import './player.css';
 import confetti from 'canvas-confetti';
 
-const socket = io(BACKEND_URL);
+// --- Socket setup ---
+const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'] });
+const QUESTION_TIME = 8;
 
 const PlayerComponent = () => {
   const [playerName, setPlayerName] = useState('');
+  const [playerId, setPlayerId] = useState('');
   const [isRegistered, setIsRegistered] = useState(false);
-
-const [playerId, setPlayerId] = useState(() => {
-  const savedName = localStorage.getItem('playerName');
-  if (savedName) {
-    const savedId = localStorage.getItem(`playerId_${savedName}`);
-    if (savedId) return savedId;
-  }
-  const newId = uuidv4();
-  return newId;
-});
-
-
+  const [score, setScore] = useState(0);
 
   const [question, setQuestion] = useState(null);
   const [timer, setTimer] = useState(0);
   const [selectedOption, setSelectedOption] = useState('');
   const [isLocked, setIsLocked] = useState(false);
 
-  // --- Socket listeners ---
+  // --- Load from localStorage ---
   useEffect(() => {
-    const handleQuestion = (data) => {
+    const savedName = localStorage.getItem('playerName');
+    if (savedName) {
+      const savedId = localStorage.getItem(`playerId_${savedName}`) || uuidv4();
+      setPlayerName(savedName);
+      setPlayerId(savedId);
+      setIsRegistered(true);
+      localStorage.setItem(`playerId_${savedName}`, savedId);
 
-      setQuestion(data.question);
-      setTimer(data.duration);
-      setSelectedOption('');
-      setIsLocked(false);
-    };
-
-    const handleGameUpdate = (update) => {
-    };
-
-    socket.on('new-question', handleQuestion);
-    socket.on('game-update', handleGameUpdate);
-
-    return () => {
-      socket.off('new-question', handleQuestion);
-      socket.off('game-update', handleGameUpdate);
-    };
+      if (socket.connected) {
+        socket.emit('join-game', { name: savedName, playerId: savedId, isMaster: false });
+        savePlayerToFirestore(savedId, savedName); // save to Firestore
+      }
+    }
   }, []);
 
-  // --- Countdown Timer ---
-  // --- Countdown Timer ---
-useEffect(() => {
-  if (timer <= 0) return;
+  // --- Socket listeners ---
+  useEffect(() => {
+    socket.on('connect', () => {
+      console.log('✅ Socket connected:', socket.id);
+      if (isRegistered && playerName && playerId) {
+        socket.emit('join-game', { name: playerName, playerId, isMaster: false });
+        savePlayerToFirestore(playerId, playerName);
+        console.log('🎮 Player re-joined game:', { name: playerName, playerId });
+      }
+    });
 
-  const t = setTimeout(() => setTimer(timer - 1), 1000);
+    socket.on('new-question', ({ question, duration }) => {
+      console.log('📩 Player received question:', question);
+      setQuestion(question);
+      setTimer(duration || QUESTION_TIME);
+      setSelectedOption('');
+      setIsLocked(false);
+    });
 
-  if (timer === 1) {
-    setIsLocked(true);
+    return () => {
+      socket.off('connect');
+      socket.off('new-question');
+    };
+  }, [isRegistered, playerName, playerId]);
 
-    const isCorrect = selectedOption && question && selectedOption === question.Answer;
+  // --- Countdown timer ---
+  useEffect(() => {
+    if (!question || timer <= 0) return;
 
-    socket.emit('question-ended');
+    const t = setTimeout(() => setTimer((prev) => prev - 1), 1000);
 
-    if (isCorrect) {
-      fetch(`${BACKEND_URL}/save-score`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerId,
-          name: playerName,
-          score: 1,
-          category: question.Category || 'General'
-        })
-      })
-      .then(res => res.json())
-      .then(data => console.log('Score saved:', data))
-      .catch(err => console.error('Error saving score:', err));
+    if (timer === 1) {
+      setIsLocked(true);
+      const isCorrect = selectedOption === question.answer;
+
+      socket.emit('question-ended', { playerId, selectedOption });
+
+      if (isCorrect) saveScore(1, question.category || 'General');
+
+      setTimeout(() => setQuestion(null), 500);
     }
 
-    // Wait 500ms before clearing question so confetti shows
-    setQuestion(null)
-  }
+    return () => clearTimeout(t);
+  }, [timer, selectedOption, question]);
 
-  return () => clearTimeout(t);
-}, [timer, selectedOption, question]);
+  // --- Save player to Firestore ---
+  const savePlayerToFirestore = async (id, name) => {
+    try {
+      await fetch(`${BACKEND_URL}/save-player`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: id, name }),
+      });
+      console.log('✅ Player saved to Firestore:', { id, name });
+    } catch (err) {
+      console.error('❌ Error saving player:', err);
+    }
+  };
 
-
-  // --- Option click ---
-const handleOptionClick = (option) => {
-  if (isLocked) return;
-
-  setSelectedOption(option);
-  setIsLocked(true);
-
-  // Determine correctness immediately
-  const isCorrect = question && option === question.Answer;
-
-  // Trigger confetti immediately if correct
-  if (isCorrect) {
-    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-  }
-
-  // Send answer to server
-  socket.emit('submit-answer', { answer: option, playerId });
-};
-
-const logout = () => {
- 
-  window.location.href = '/';
-};
-
-
-
-
+  // --- Save score ---
+  const saveScore = async (points = 0, category = 'General') => {
+    if (!playerName || !playerId) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/save-score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId, name: playerName, score: points, category }),
+      });
+      const data = await res.json();
+      console.log('✅ Score saved:', data);
+      if (points > 0) setScore((prev) => prev + points);
+    } catch (err) {
+      console.error('❌ Error saving score:', err);
+    }
+  };
 
   // --- Register player ---
-  const handleRegister = () => {
-  if (!playerName.trim()) return alert('Please enter your name.');
+  const handleRegister = async () => {
+    if (!playerName.trim()) return alert('Please enter your name.');
 
-  // Save name & ID to localStorage
-  localStorage.setItem('playerName', playerName);
-  localStorage.setItem(`playerId_${playerName}`, playerId);
+    const newId = uuidv4();
+    setPlayerId(newId);
+    localStorage.setItem('playerName', playerName);
+    localStorage.setItem(`playerId_${playerName}`, newId);
+    setIsRegistered(true);
 
-  setIsRegistered(true);
+    if (!socket.connected) socket.connect();
 
-  socket.emit('join-game', { name: playerName, playerId, isMaster: false });
+    socket.emit('join-game', { name: playerName, playerId: newId, isMaster: false });
+    console.log('🎮 Player joined game:', { name: playerName, playerId: newId });
 
-  // Add player to score sheet
-  fetch(`${BACKEND_URL}/save-score`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      playerId,
-      name: playerName,
-      score: 0,
-      category: 'General'
-    })
-  })
-    .then(res => res.json())
-    .then(data => console.log('Player added to score sheet:', data))
-    .catch(err => console.error('Error adding player to score sheet:', err));
-};
+    await savePlayerToFirestore(newId, playerName); // Save to Firestore
+    await saveScore(0, 'General'); // Initialize score
+  };
 
+  // --- Handle option click ---
+  const handleOptionClick = (option) => {
+    if (isLocked || !question) return;
+
+    setSelectedOption(option);
+    setIsLocked(true);
+
+    if (option === question.answer) {
+      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+    }
+
+    socket.emit('submit-answer', { answer: option, playerId });
+  };
+
+  // --- Logout ---
+  const logout = () => {
+    localStorage.removeItem('playerName');
+    localStorage.removeItem(`playerId_${playerName}`);
+    window.location.reload();
+  };
 
   // --- Render ---
   if (!isRegistered) {
@@ -159,15 +167,7 @@ const logout = () => {
         />
         <div className="join-buttons">
           <button onClick={handleRegister}>Join Game</button>
-          <button
-            className="home-btn"
-            onClick={() => {
-              localStorage.removeItem('playerName');
-              window.location.href = '/';
-            }}
-          >
-            Go Home
-          </button>
+          <button className="home-btn" onClick={logout}>Go Home</button>
         </div>
       </div>
     );
@@ -176,14 +176,16 @@ const logout = () => {
   return (
     <div className="player-container">
       <h1>Welcome, {playerName}</h1>
-<p className="timer">⏱ Time Remaining: {timer}s</p>
+      <p>Score: {score}</p>
+      <p className="timer">⏱ Time Remaining: {timer}s</p>
+
       {!question ? (
-        <p className="waiting-text">Waiting for the Game Master to start the round...</p>
+        <p className="waiting-text">Waiting for the Game Master to start...</p>
       ) : (
         <div className="question-card">
-          <h2>{question.question}</h2>
+          <h2>{question.Question || question.question}</h2>
           <div className="options-grid">
-            {question.options.map((opt, idx) => (
+            {question.options?.map((opt, idx) => (
               <button
                 key={idx}
                 className={`option-btn ${selectedOption === opt ? 'selected' : ''}`}
@@ -194,15 +196,15 @@ const logout = () => {
               </button>
             ))}
           </div>
-          
           {isLocked && selectedOption && (
-            <p className="locked-text">You chose: <strong>{selectedOption}</strong></p>
+            <p className="locked-text">
+              You chose: <strong>{selectedOption}</strong>
+            </p>
           )}
         </div>
       )}
-      <button className="logout-btn" onClick={logout}>
-  Logout
-</button>
+
+      <button className="logout-btn" onClick={logout}>Logout</button>
     </div>
   );
 };

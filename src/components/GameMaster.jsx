@@ -4,6 +4,8 @@ import { io } from 'socket.io-client';
 import { useNavigate } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
 import './GameMasterDashboard.css';
+import { v4 as uuidv4 } from 'uuid';
+
 
 const socket = io(BACKEND_URL);
 
@@ -27,13 +29,12 @@ const GameMasterDashboard = () => {
 
   
 
-  
+  const [masterId] = useState(() => uuidv4());
 
   // --- Register Game Master once ---
-  useEffect(() => {
-    socket.emit('join-game', { name: adminName, isMaster: true });
-  }, []);
-
+ useEffect(() => {
+  socket.emit('join-game', { name: adminName, isMaster: true, playerId: masterId });
+}, []);
   // --- Load questions with cache ---
   useEffect(() => {
     const fetchQuestions = async (category = selectedCategory) => {
