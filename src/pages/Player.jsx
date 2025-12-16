@@ -1,10 +1,11 @@
 // pages/PlayerComponent.js
 import React, { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import { v4 as uuidv4 } from 'uuid';
 import { BACKEND_URL } from '../config';
 import './player.css';
 import confetti from 'canvas-confetti';
+import { useNavigate } from 'react-router-dom';
+
 
 // --- Socket setup ---
 const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'] });
@@ -20,139 +21,190 @@ const PlayerComponent = () => {
   const [timer, setTimer] = useState(0);
   const [selectedOption, setSelectedOption] = useState('');
   const [isLocked, setIsLocked] = useState(false);
+  const navigate = useNavigate();
 
-  // --- Load from localStorage ---
-  useEffect(() => {
-    const savedName = localStorage.getItem('playerName');
-    if (savedName) {
-      const savedId = localStorage.getItem(`playerId_${savedName}`) || uuidv4();
-      setPlayerName(savedName);
-      setPlayerId(savedId);
-      setIsRegistered(true);
-      localStorage.setItem(`playerId_${savedName}`, savedId);
 
-      if (socket.connected) {
-        socket.emit('join-game', { name: savedName, playerId: savedId, isMaster: false });
-        savePlayerToFirestore(savedId, savedName); // save to Firestore
-      }
+
+
+useEffect(() => {
+  const savedName = localStorage.getItem('playerName');
+  const savedId = localStorage.getItem('playerId');
+
+  if (savedName && savedId) {
+    setPlayerName(savedName);
+    setPlayerId(savedId);
+    setIsRegistered(true);
+
+    // Join game immediately
+    if (socket.connected) {
+      socket.emit('join-game', { name: savedName, playerId: savedId, isMaster: false });
     }
-  }, []);
 
-  // --- Socket listeners ---
+    // Fetch score/question
+    fetch(`${BACKEND_URL}/player-data?playerId=${savedId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.score !== undefined) setScore(data.score);
+        if (data.currentQuestion) {
+          setQuestion(data.currentQuestion.question);
+          setTimer(data.currentQuestion.timeLeft || QUESTION_TIME);
+        }
+      })
+      .catch(err => console.error(err));
+  }
+}, []);
+
+
+// --- Handle socket events ---
   useEffect(() => {
+    // On connect, join the game if registered
     socket.on('connect', () => {
-      console.log('✅ Socket connected:', socket.id);
-      if (isRegistered && playerName && playerId) {
+      if (isRegistered && playerId && playerName) {
         socket.emit('join-game', { name: playerName, playerId, isMaster: false });
-        savePlayerToFirestore(playerId, playerName);
-        console.log('🎮 Player re-joined game:', { name: playerName, playerId });
       }
     });
 
+    // New question from backend
     socket.on('new-question', ({ question, duration }) => {
-      console.log('📩 Player received question:', question);
       setQuestion(question);
-      setTimer(duration || QUESTION_TIME);
-      setSelectedOption('');
-      setIsLocked(false);
+      if (question) {
+        setTimer(duration || QUESTION_TIME);
+        setSelectedOption('');
+        setIsLocked(false);
+      } else {
+        setTimer(0);
+        setSelectedOption('');
+        setIsLocked(false);
+      }
     });
+
+    // Timer updates
+    socket.on('timer-update', ({ timeLeft }) => setTimer(timeLeft));
+
+    // Answer result
+    socket.on('answer-result', ({ correct, score: newScore }) => {
+      if (correct) {
+        confetti({ particleCount: 100, spread: 30, origin: { y: 0.6 } });
+      }
+      setScore(newScore);
+    });
+
+    socket.on('question-ended', ({ finalScores }) => {
+  setIsLocked(true);
+
+  if (finalScores && playerId && finalScores[playerId] !== undefined) {
+    setScore(finalScores[playerId]);
+  }
+});
+
 
     return () => {
       socket.off('connect');
       socket.off('new-question');
+      socket.off('timer-update');
+      socket.off('answer-result');
+      socket.off('question-ended');
     };
   }, [isRegistered, playerName, playerId]);
 
-  // --- Countdown timer ---
+  // --- Fetch player score and current question from backend on load ---
   useEffect(() => {
-    if (!question || timer <= 0) return;
+    if (!playerId) return;
 
-    const t = setTimeout(() => setTimer((prev) => prev - 1), 1000);
+    const fetchPlayerData = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/player-data?playerId=${playerId}`);
+        const data = await res.json();
 
-    if (timer === 1) {
-      setIsLocked(true);
-      const isCorrect = selectedOption === question.answer;
+        if (data.name) setPlayerName(data.name);
+        if (data.score !== undefined) setScore(data.score);
+        if (data.currentQuestion) {
+          setQuestion(data.currentQuestion.question);
+          setTimer(data.currentQuestion.timeLeft || QUESTION_TIME);
+        }
+        setIsRegistered(true);
 
-      socket.emit('question-ended', { playerId, selectedOption });
+        // Join game after fetching data
+        if (socket.connected) {
+          socket.emit('join-game', { name: data.name, playerId, isMaster: false });
+        }
+      } catch (err) {
+        console.error('❌ Failed to fetch player data:', err);
+      }
+    };
 
-      if (isCorrect) saveScore(1, question.category || 'General');
-
-      setTimeout(() => setQuestion(null), 500);
-    }
-
-    return () => clearTimeout(t);
-  }, [timer, selectedOption, question]);
-
-  // --- Save player to Firestore ---
-  const savePlayerToFirestore = async (id, name) => {
-    try {
-      await fetch(`${BACKEND_URL}/save-player`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId: id, name }),
-      });
-      console.log('✅ Player saved to Firestore:', { id, name });
-    } catch (err) {
-      console.error('❌ Error saving player:', err);
-    }
-  };
-
-  // --- Save score ---
-  const saveScore = async (points = 0, category = 'General') => {
-    if (!playerName || !playerId) return;
-    try {
-      const res = await fetch(`${BACKEND_URL}/save-score`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId, name: playerName, score: points, category }),
-      });
-      const data = await res.json();
-      console.log('✅ Score saved:', data);
-      if (points > 0) setScore((prev) => prev + points);
-    } catch (err) {
-      console.error('❌ Error saving score:', err);
-    }
-  };
+    fetchPlayerData();
+  }, [playerId]);
 
   // --- Register player ---
   const handleRegister = async () => {
-    if (!playerName.trim()) return alert('Please enter your name.');
+  if (!playerName.trim()) return alert('Please enter your name');
 
-    const newId = uuidv4();
-    setPlayerId(newId);
+  try {
+    const res = await fetch(`${BACKEND_URL}/register-player`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: playerName }),
+    });
+    const data = await res.json();
+
+    if (!data.playerId) throw new Error('No playerId returned from server');
+
+    // Save locally
     localStorage.setItem('playerName', playerName);
-    localStorage.setItem(`playerId_${playerName}`, newId);
+    localStorage.setItem('playerId', data.playerId);
+
+    setPlayerId(data.playerId);
+    setScore(data.score || 0);
     setIsRegistered(true);
 
-    if (!socket.connected) socket.connect();
+    // Emit join only after playerId is guaranteed
+    socket.emit('join-game', { name: playerName, playerId: data.playerId, isMaster: false });
+  } catch (err) {
+    console.error('❌ Registration failed:', err);
+  }
+};
 
-    socket.emit('join-game', { name: playerName, playerId: newId, isMaster: false });
-    console.log('🎮 Player joined game:', { name: playerName, playerId: newId });
 
-    await savePlayerToFirestore(newId, playerName); // Save to Firestore
-    await saveScore(0, 'General'); // Initialize score
-  };
 
   // --- Handle option click ---
   const handleOptionClick = (option) => {
     if (isLocked || !question) return;
-
     setSelectedOption(option);
     setIsLocked(true);
-
-    if (option === question.answer) {
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-    }
-
     socket.emit('submit-answer', { answer: option, playerId });
   };
 
   // --- Logout ---
   const logout = () => {
+    setIsRegistered(false);
+    setPlayerName('');
+    setPlayerId('');
+    setScore(0);
+    setQuestion(null);
+    setSelectedOption('');
+    setIsLocked(false);
+
     localStorage.removeItem('playerName');
-    localStorage.removeItem(`playerId_${playerName}`);
-    window.location.reload();
+  localStorage.removeItem('playerId');
   };
+
+  const goHome = () => {
+  // Clear state
+  setIsRegistered(false);
+  setPlayerName('');
+  setPlayerId('');
+  setScore(0);
+  setQuestion(null);
+  setSelectedOption('');
+  setIsLocked(false);
+
+  // Remove saved player data
+  localStorage.removeItem('playerName');
+  localStorage.removeItem('playerId');
+
+  navigate('/')
+};
 
   // --- Render ---
   if (!isRegistered) {
@@ -167,7 +219,7 @@ const PlayerComponent = () => {
         />
         <div className="join-buttons">
           <button onClick={handleRegister}>Join Game</button>
-          <button className="home-btn" onClick={logout}>Go Home</button>
+          <button onClick={goHome}>Home</button>
         </div>
       </div>
     );

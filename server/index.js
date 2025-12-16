@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { db } from './firebaseConfig.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 const server = http.createServer(app);
@@ -32,38 +33,20 @@ app.post('/admin/login', (req, res) => {
 // ------------------- REST Endpoints -------------------
 
 // Save or update player score
+// 🚨 Server-authoritative /save-score
 app.post('/save-score', async (req, res) => {
   try {
-    const { playerId, name, score, category } = req.body;
-    if (!playerId || !name || typeof score !== 'number') {
-      return res.status(400).json({ status: 'error', message: 'Invalid data' });
-    }
-
-    const scoreRef = db.collection('Scores').doc(playerId);
-    const doc = await scoreRef.get();
-
-    if (doc.exists) {
-      await scoreRef.update({
-        name,
-        score: FieldValue.increment(score),
-        category,
-        lastUpdated: new Date(),
-      });
-    } else {
-      await scoreRef.set({
-        name,
-        score,
-        category,
-        lastUpdated: new Date(),
-      });
-    }
-
-    res.json({ status: 'success' });
+    // Reject any client attempt to manually set scores
+    return res.status(403).json({
+      status: 'error',
+      message: 'Score submission is server-controlled. Clients cannot write scores directly.',
+    });
   } catch (err) {
-    console.error('❌ Error saving score:', err);
+    console.error('❌ Error in /save-score:', err);
     res.status(500).json({ status: 'error', message: err.message });
   }
 });
+
 
 // Get all scores
 app.get('/scores', async (req, res) => {
@@ -139,85 +122,147 @@ let players = {};        // { socketId: { name, score, isMaster, playerId } }
 let playerSockets = {};  // { playerId: socketId }
 let correctPlayers = [];
 let currentQuestion = null;
+let questionTimer = null; // global for current question
+let timeLeft = 0;
+let countdownInterval;
+
 
 io.on('connection', (socket) => {
   console.log('✅ New client connected:', socket.id);
 
   // Player joins
-  socket.on('join-game', ({ name, isMaster, playerId }) => {
-    // Handle reconnects: remove old socket if exists
-    const oldSocketId = playerSockets[playerId];
-    if (oldSocketId && players[oldSocketId]) {
-      delete players[oldSocketId];
-    }
+ // When player joins
+socket.on('join-game', ({ name, isMaster, playerId }) => {
+  // Check if this player already exists
+  const existingSocketId = playerSockets[playerId];
 
-    // Add/update player
-    players[socket.id] = { name, score: 0, isMaster, playerId };
-    playerSockets[playerId] = socket.id;
+  if (existingSocketId && players[existingSocketId]) {
+    // Player is reconnecting: remove old socket entry
+    delete players[existingSocketId];
+  }
 
-    console.log(`🎮 Player joined: ${name} (Master: ${isMaster}) [${socket.id}], UUID: ${playerId}`);
+  // Add/update player
+  players[socket.id] = { name, score: 0, isMaster, playerId };
+  playerSockets[playerId] = socket.id;
 
-    socket.emit('joined', { id: socket.id, name, isMaster, playerId });
-    io.emit('players-update', Object.values(players));
-  });
+  console.log(`🎮 Player joined: ${name} (Master: ${isMaster}) [${socket.id}], UUID: ${playerId}`);
+
+  socket.emit('joined', { id: socket.id, name, isMaster, playerId });
+  io.emit('players-update', Object.values(players));
+});
+
 
   // Game Master sends question
-  socket.on('sendingGame-question', ({ question, duration }) => {
-    const player = players[socket.id];
-    if (!player?.isMaster) return;
+ socket.on('sendingGame-question', ({ question, duration }) => {
+  const player = players[socket.id];
+  if (!player?.isMaster) return;
 
-    currentQuestion = {
-      question: question.Question,
-      options: [question.Option1, question.Option2, question.Option3, question.Option4],
-      answer: question.Answer,
-      category: question.Category || 'General',
-    };
+  currentQuestion = {
+    question: question.Question,
+    options: [question.Option1, question.Option2, question.Option3, question.Option4],
+    answer: question.Answer,
+    category: question.Category || 'General',
+  };
 
-    correctPlayers = [];
-    console.log(`📤 Question sent by Master ${player.name}:`, question);
-    io.emit('new-question', { question: currentQuestion, duration });
+  correctPlayers = [];
+  // Assign to global, not local
+  timeLeft = duration || 8;
+
+  // 🔑 Reset answered flags
+  Object.values(players).forEach((p) => (p.answered = false));
+
+  io.emit('new-question', { question: currentQuestion, duration: timeLeft });
+
+  // Clear previous interval
+  if (questionTimer) clearInterval(questionTimer);
+
+  // Start countdown
+  questionTimer = setInterval(() => {
+    timeLeft -= 1;
+    io.emit('timer-update', { timeLeft });
+
+    if (timeLeft <= 0) {
+      clearInterval(questionTimer);
+      questionTimer = null;
+
+      // Build finalScores map
+  const finalScores = {};
+  Object.values(players).forEach(p => {
+    finalScores[p.playerId] = p.score;
   });
+
+      // End question
+      io.emit('question-ended', { correctPlayers });
+
+      // Reset question after short delay
+      setTimeout(() => { 
+        currentQuestion = null; 
+        io.emit('new-question', { question: null }); 
+      }, 500);
+    }
+  }, 1000);
+});
+
+
+
 
   // Player submits answer
-  socket.on('submit-answer', async ({ answer, playerId }) => {
-    const player = players[socket.id];
-    if (!player || !currentQuestion) return;
+ socket.on('submit-answer', async ({ answer, playerId }) => {
+  const player = players[socket.id];
+  if (!player || !currentQuestion) return;
 
-    const correct = answer === currentQuestion.answer;
-    if (correct) {
-      players[socket.id].score += 1;
-      if (!correctPlayers.includes(player.name)) correctPlayers.push(player.name);
+  // Prevent double answering
+  if (player.answered) return;
+  player.answered = true;
 
-      try {
-        const scoreRef = db.collection('Scores').doc(playerId);
-        await db.runTransaction(async (transaction) => {
-          const doc = await transaction.get(scoreRef);
-          if (doc.exists) {
-            transaction.update(scoreRef, {
-              name: player.name,
-              score: doc.data().score + 1,
-              category: currentQuestion.category,
-              lastUpdated: new Date(),
-            });
-          } else {
-            transaction.set(scoreRef, {
-              name: player.name,
-              score: 1,
-              category: currentQuestion.category,
-              lastUpdated: new Date(),
-            });
-          }
-        });
-      } catch (err) {
-        console.error(`❌ Failed to update score for ${player.name}:`, err);
-      }
+  const correct = answer === currentQuestion.answer;
 
-      const masterSocketId = Object.keys(players).find((id) => players[id].isMaster);
-      if (masterSocketId) io.to(masterSocketId).emit('players-correct', correctPlayers);
+  if (correct) {
+    try {
+      const scoreRef = db.collection('Scores').doc(playerId);
+
+      // Increment score in Firestore
+      await scoreRef.set(
+        {
+          name: player.name,
+          score: FieldValue.increment(1),
+          category: currentQuestion.category,
+          lastUpdated: new Date(),
+        },
+        { merge: true }
+      );
+
+      // Fetch the latest score from Firestore to keep client in sync
+      const updatedDoc = await scoreRef.get();
+      const latestScore = updatedDoc.data()?.score || 0;
+
+      player.score = latestScore;
+
+      // Notify player
+      socket.emit('answer-result', { correct, score: latestScore });
+
+    } catch (err) {
+      console.error(`❌ Failed to update score for ${player.name}:`, err);
+      // fallback to in-memory score
+      player.score += 1;
+      socket.emit('answer-result', { correct, score: player.score });
     }
+  } else {
+    // Wrong answer, just emit current score
+    socket.emit('answer-result', { correct, score: player.score });
+  }
 
-    socket.emit('answer-result', { correct, score: players[socket.id].score });
-  });
+  // Notify master if correct
+  if (correct) {
+    correctPlayers.push(player.name);
+    const masterSocketId = Object.keys(players).find((id) => players[id].isMaster);
+    if (masterSocketId) {
+      io.to(masterSocketId).emit('players-correct', correctPlayers);
+    }
+  }
+});
+
+
 
   // Game master ends question manually
   socket.on('question-ended', () => {
@@ -239,5 +284,68 @@ io.on('connection', (socket) => {
     io.emit('players-update', Object.values(players));
   });
 });
+
+
+app.post('/register-player', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Invalid name' });
+
+    const normalizedName = name.trim().toLowerCase();
+
+    // Check if any existing player has the same name (case-insensitive)
+    const existingPlayers = await db.collection('Scores')
+      .get();
+
+   const duplicate = existingPlayers.docs.find(doc =>
+  doc.data().name.trim().toLowerCase() === normalizedName
+);
+
+if (duplicate) {
+  return res.json({ playerId: duplicate.data().playerId, score: duplicate.data().score || 0 });
+}
+
+
+    const playerId = uuidv4();
+    await db.collection('Scores').doc(playerId).set({
+      name: name.trim(),
+      playerId,
+      score: 0,
+      lastUpdated: new Date(),
+    });
+
+    res.json({ playerId, score: 0 });
+  } catch (err) {
+    console.error('❌ Error registering player:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+
+app.get('/player-data', async (req, res) => {
+  const { playerId } = req.query;
+  const playerDocs = await db.collection('Scores').where('playerId', '==', playerId).get();
+
+  if (playerDocs.empty) return res.json({});
+
+  const playerData = playerDocs.docs[0].data();
+
+  res.json({
+    name: playerData.name,
+    score: playerData.score || 0,
+    currentQuestion: currentQuestion
+      ? { question: currentQuestion, timeLeft }
+      : null,
+  });
+});
+
+
+
+
+
+
+
+
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

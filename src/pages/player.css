@@ -71,3 +71,6 @@
   font-weight: 600;
   color: #ffb703;
 }
+button {
+  cursor: pointer; /* makes pointer appear on hover */
+}

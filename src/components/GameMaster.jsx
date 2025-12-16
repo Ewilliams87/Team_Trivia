@@ -85,6 +85,16 @@ const GameMasterDashboard = () => {
   }
 };
 
+useEffect(() => {
+  if (correctPlayers.length === 0) return;
+
+  const timer = setTimeout(() => {
+    setCorrectPlayers([]); // hide panel after 5 seconds
+  }, 20000); //  20 seconds
+
+  return () => clearTimeout(timer); // cleanup if updated again
+}, [correctPlayers]);
+
 
   // --- Listen for connected players ---
   useEffect(() => {
@@ -102,10 +112,9 @@ const GameMasterDashboard = () => {
 
   // --- Timer countdown ---
   useEffect(() => {
-    if (timer <= 0) return;
-    const t = setTimeout(() => setTimer(timer - 1), 1000);
-    return () => clearTimeout(t);
-  }, [timer]);
+    socket.on('timer-update', ({ timeLeft }) => setTimer(timeLeft));
+    return () => socket.off('timer-update');
+  }, []);
 
   // --- Send question to players ---
   const sendQuestion = () => {
@@ -233,7 +242,9 @@ const GameMasterDashboard = () => {
       {/* --- Correct Players Panel --- */}
       {activeTab === 'dashboard' && correctPlayers.length > 0 && (
         <div className="correct-players-panel">
-          <h4>🎉 Players Who Answered Correctly:</h4>
+<     p style={{ color: '#111', fontWeight: 'bold' }}>
+        Correct Answer: <strong>{selectedQuestion.Answer}</strong>
+</p>          <h4>🎉 Players Who Answered Correctly:</h4>
           <ul>
             {correctPlayers.map((player, idx) => (
               <li key={idx}>

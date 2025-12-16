@@ -1,10 +1,12 @@
+// pages/TriviaGame.js
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { BACKEND_URL } from '../config';
 import './Triviagame.css';
+import confetti from 'canvas-confetti';
 
-const socket = io(BACKEND_URL);
+const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'] });
 const QUESTION_TIME = 8;
 
 const TriviaGame = ({ categoryName }) => {
@@ -18,20 +20,26 @@ const TriviaGame = ({ categoryName }) => {
   const [gameOver, setGameOver] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  // Listen for new questions from the backend
   useEffect(() => {
-    // Listen for questions from master
     socket.on('new-question', ({ question, duration }) => {
       setCurrentQuestion(question);
       setTimeLeft(duration || QUESTION_TIME);
       setSelectedAnswer(null);
     });
 
-    // Listen for game over
     socket.on('game-over', () => setGameOver(true));
+
+    // Backend sends score updates after answer submission
+    socket.on('answer-result', ({ correct, score: newScore }) => {
+      setScore(newScore);
+      if (correct) confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+    });
 
     return () => {
       socket.off('new-question');
       socket.off('game-over');
+      socket.off('answer-result');
     };
   }, []);
 
@@ -43,12 +51,19 @@ const TriviaGame = ({ categoryName }) => {
     return () => clearTimeout(timer);
   }, [timeLeft, started, currentQuestion, gameOver]);
 
+  // Handle player answer
   const handleAnswer = (opt) => {
+    if (selectedAnswer) return; // already answered
     setSelectedAnswer(opt);
-    if (opt === currentQuestion.answer) setScore((s) => s + 1);
-    socket.emit('submit-answer', { player: playerName, answer: opt, correct: opt === currentQuestion.answer });
+
+    // Send answer to backend; backend determines correctness and updates score
+    socket.emit('submit-answer', {
+      player: playerName,
+      answer: opt,
+    });
   };
 
+  // Save score manually to backend (optional)
   const saveScore = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/save-score`, {
