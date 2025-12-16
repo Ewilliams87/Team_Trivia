@@ -159,8 +159,7 @@ useEffect(() => {
       {/* --- Questions Panel --- */}
       {activeTab === 'dashboard' && (
         <div className="dashboard-panel">
-          <h2>Select a Question</h2>
-          <p>⏱ Timer: {timer}s</p>
+          <p><strong>⏱ Timer: {timer}s</strong></p>
 
           {/* Category Selector */}
           <div className="category-select">
