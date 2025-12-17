@@ -231,6 +231,19 @@ body, html {
 
 .question-category {
   font-size: 0.9em;
-  color: #555;
+  color: #ebcccc;
   margin-top: 4px;
+}
+
+/* Quesetion Tracking */
+.question-item.used {
+  opacity: 0.7;
+  background: #9b1616;
+}
+
+.used-badge {
+  margin-left: 10px;
+  font-size: 0.9rem;
+  color: rgb(10, 161, 10);
+  font-weight: bold;
 }

@@ -6,7 +6,6 @@ import { BACKEND_URL } from '../config';
 import './GameMasterDashboard.css';
 import { v4 as uuidv4 } from 'uuid';
 
-
 const socket = io(BACKEND_URL);
 
 const GameMasterDashboard = () => {
@@ -14,47 +13,64 @@ const GameMasterDashboard = () => {
   const [adminName, setAdminName] = useState('Game Master');
   const [questions, setQuestions] = useState([]);
   const [selectedQuestion, setSelectedQuestion] = useState(null);
+  const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(null);
   const [timer, setTimer] = useState(0);
   const [leaderboard, setLeaderboard] = useState([]);
   const [players, setPlayers] = useState([]);
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'leaderboard', 'players'
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [correctPlayers, setCorrectPlayers] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [showAnswer, setShowAnswer] = useState(false);
 
-  // Static categories list (can manually add more)
   const categories = ['', 'Christmas', 'Halloween', 'Thanksgiving'];
-
-  // Initialize questions cache from localStorage
   const [questionsCache, setQuestionsCache] = useState({});
-
-  
-
+  const [usedQuestions, setUsedQuestions] = useState(() => JSON.parse(localStorage.getItem('usedQuestions') || '[]'));
   const [masterId] = useState(() => uuidv4());
 
-  // --- Register Game Master once ---
- useEffect(() => {
-  socket.emit('join-game', { name: adminName, isMaster: true, playerId: masterId });
-}, []);
-  // --- Load questions with cache ---
+  const [lastAnswered, setLastAnswered] = useState(() => {
+    const saved = localStorage.getItem('lastAnswered');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  // --- Restore last question safely ---
+  useEffect(() => {
+    if (lastAnswered) {
+      setSelectedQuestion(lastAnswered.question);
+      setSelectedQuestionIndex(lastAnswered.index);
+
+      if (lastAnswered.correctPlayers && lastAnswered.correctPlayers.length > 0) {
+        setCorrectPlayers(lastAnswered.correctPlayers);
+        setShowAnswer(true);
+      } else {
+        setCorrectPlayers([]);
+        setShowAnswer(false);
+      }
+    }
+  }, []);
+
+  // --- Register Game Master ---
+  useEffect(() => {
+    socket.emit('join-game', { name: adminName, isMaster: true, playerId: masterId });
+  }, []);
+
+  // --- Load questions ---
   useEffect(() => {
     const fetchQuestions = async (category = selectedCategory) => {
       if (questionsCache[category]) {
-        setQuestions(questionsCache[category]); // use cached questions
+        setQuestions(questionsCache[category]);
         return;
       }
 
       try {
-        const url =
-          category === 'All'
-            ? `${BACKEND_URL}/questions`
-            : `${BACKEND_URL}/questions?category=${encodeURIComponent(category)}`;
-
+        const url = category === 'All'
+          ? `${BACKEND_URL}/questions`
+          : `${BACKEND_URL}/questions?category=${encodeURIComponent(category)}`;
         const res = await fetch(url);
         const data = await res.json();
 
         if (Array.isArray(data)) {
           setQuestions(data);
-          setQuestionsCache(prev => ({ ...prev, [category]: data })); // cache results
+          setQuestionsCache(prev => ({ ...prev, [category]: data }));
         } else {
           console.error('Unexpected response format:', data);
           setQuestions([]);
@@ -66,80 +82,106 @@ const GameMasterDashboard = () => {
     };
 
     fetchQuestions(selectedCategory);
-  }, [selectedCategory]); // removed questionsCache dependency
+  }, [selectedCategory]);
 
-  // --- Filtered questions ---
   const filteredQuestions = selectedCategory === 'All'
     ? questions
     : questions.filter(q => q.Category === selectedCategory);
 
   // --- Load leaderboard ---
   const fetchLeaderboard = async () => {
-  try {
-    const res = await fetch(`${BACKEND_URL}/scores`);
-    const data = await res.json();
-    const sorted = data.sort((a, b) => b.score - a.score);
-    setLeaderboard(sorted);
-  } catch (err) {
-    console.error('Error fetching leaderboard:', err);
-  }
-};
-
-useEffect(() => {
-  if (correctPlayers.length === 0) return;
-
-  const timer = setTimeout(() => {
-    setCorrectPlayers([]); // hide panel after 5 seconds
-  }, 20000); //  20 seconds
-
-  return () => clearTimeout(timer); // cleanup if updated again
-}, [correctPlayers]);
-
+    try {
+      const res = await fetch(`${BACKEND_URL}/scores`);
+      const data = await res.json();
+      const sorted = data.sort((a, b) => b.score - a.score);
+      setLeaderboard(sorted);
+    } catch (err) {
+      console.error('Error fetching leaderboard:', err);
+    }
+  };
 
   // --- Listen for connected players ---
   useEffect(() => {
     const handlePlayersUpdate = (playerList) => {
-      console.log('[SOCKET] Updated players:', playerList);
       setPlayers(playerList);
     };
-
     socket.on('players-update', handlePlayersUpdate);
-
-    return () => {
-      socket.off('players-update', handlePlayersUpdate);
-    };
+    return () => socket.off('players-update', handlePlayersUpdate);
   }, []);
 
   // --- Timer countdown ---
   useEffect(() => {
-    socket.on('timer-update', ({ timeLeft }) => setTimer(timeLeft));
-    return () => socket.off('timer-update');
+    const handleTimerUpdate = ({ timeLeft }) => {
+      setTimer(timeLeft);
+      if (timeLeft === 0) setShowAnswer(true);
+    };
+    socket.on('timer-update', handleTimerUpdate);
+    return () => socket.off('timer-update', handleTimerUpdate);
   }, []);
-
-  // --- Send question to players ---
-  const sendQuestion = () => {
-    if (!selectedQuestion) return alert('Please select a question to send.');
-
-    setCorrectPlayers([]); // reset correct players
-
-    socket.emit('sendingGame-question', { question: selectedQuestion, duration: 10 });
-    setTimer(10);
-  };
 
   // --- Listen for correct players ---
   useEffect(() => {
-    const handleCorrectPlayers = (list) => {
-      setCorrectPlayers(list);
+  const handleCorrectPlayers = (list) => {
+    if (!lastAnswered) return;
+
+    const updated = { ...lastAnswered, correctPlayers: list };
+    setLastAnswered(updated);
+    setCorrectPlayers(list);
+
+    // Persist immediately
+    localStorage.setItem('lastAnswered', JSON.stringify(updated));
+  };
+
+  socket.on('players-correct', handleCorrectPlayers);
+  return () => socket.off('players-correct', handleCorrectPlayers);
+}, [lastAnswered]);
+
+
+  // --- Send question ---
+  const sendQuestion = () => {
+    if (!selectedQuestion) return alert('Please select a question to send.');
+
+    setCorrectPlayers([]);
+    setShowAnswer(false);
+
+    socket.emit('sendingGame-question', {
+      question: selectedQuestion,
+      duration: 10
+    });
+
+    setTimer(10);
+
+    const answered = {
+      question: selectedQuestion,
+      index: selectedQuestionIndex,
+      correctPlayers: null // do NOT persist empty array yet
     };
+    setLastAnswered(answered);
+    localStorage.setItem('lastAnswered', JSON.stringify(answered));
 
-    socket.on('players-correct', handleCorrectPlayers);
+    // Mark as used
+    const key = selectedQuestion.id || selectedQuestion.Question;
+    if (!usedQuestions.includes(key)) {
+      const updated = [...usedQuestions, key];
+      setUsedQuestions(updated);
+      localStorage.setItem('usedQuestions', JSON.stringify(updated));
+    }
+  };
 
-    return () => {
-      socket.off('players-correct', handleCorrectPlayers);
-    };
-  }, []);
+  // --- Reset used questions ---
+  const resetUsedQuestions = () => {
+    setUsedQuestions([]);
+    localStorage.removeItem('usedQuestions');
+    localStorage.removeItem('lastSelectedQuestion');
+    localStorage.removeItem('lastSelectedQuestionIndex');
+    localStorage.removeItem('lastAnswered');
+    setSelectedQuestion(null);
+    setSelectedQuestionIndex(null);
+    setCorrectPlayers([]);
+    setShowAnswer(false);
+  };
 
-  // --- Logout handler ---
+  // --- Logout ---
   const handleLogout = () => {
     localStorage.removeItem('adminAuth');
     navigate('/');
@@ -161,7 +203,6 @@ useEffect(() => {
         <div className="dashboard-panel">
           <p><strong>⏱ Timer: {timer}s</strong></p>
 
-          {/* Category Selector */}
           <div className="category-select">
             <label htmlFor="category">Choose a Category: </label>
             <select
@@ -175,26 +216,32 @@ useEffect(() => {
             </select>
           </div>
 
-          {/* Question List */}
           {filteredQuestions.length > 0 ? (
             <ul className="question-list">
               {filteredQuestions.map((q, index) => (
                 <li
                   key={index}
-                  className={`question-item ${selectedQuestion === q ? 'selected' : ''}`}
-                  onClick={() => setSelectedQuestion(q)}
+                  className={`question-item
+                    ${selectedQuestion === q ? 'selected' : ''}
+                    ${usedQuestions.includes(q.id || q.Question) ? 'used' : ''}`}
+                  onClick={() => {
+                    setSelectedQuestion(q);
+                    setSelectedQuestionIndex(index);
+                  }}
                 >
                   <strong>Q{index + 1}:</strong> {q.Question}
-                  <div className="question-category">📂 {q.Category}</div>
+                  <div className="question-category"> {q.Category}</div>
+                  {usedQuestions.includes(q.id || q.Question) && (
+                    <span className="used-badge">✔ Used</span>
+                  )}
                 </li>
               ))}
             </ul>
-          ) : (
-            <p>No questions available for this category.</p>
-          )}
+          ) : <p>No questions available for this category.</p>}
 
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
             <button onClick={sendQuestion}>Send Selected Question</button>
+            <button onClick={resetUsedQuestions}>🔄 New Game</button>
           </div>
         </div>
       )}
@@ -212,9 +259,7 @@ useEffect(() => {
                 </li>
               ))}
             </ul>
-          ) : (
-            <p>No scores yet</p>
-          )}
+          ) : <p>No scores yet</p>}
         </div>
       )}
 
@@ -231,28 +276,39 @@ useEffect(() => {
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p>No players connected</p>
-            )}
+            ) : <p>No players connected</p>}
           </div>
         </div>
       )}
 
-      {/* --- Correct Players Panel --- */}
-      {activeTab === 'dashboard' && correctPlayers.length > 0 && (
-        <div className="correct-players-panel">
-<     p style={{ color: '#111', fontWeight: 'bold' }}>
-        Correct Answer: <strong>{selectedQuestion.Answer}</strong>
-</p>          <h4>🎉 Players Who Answered Correctly:</h4>
-          <ul>
-            {correctPlayers.map((player, idx) => (
-              <li key={idx}>
-                {idx + 1}. {typeof player === 'string' ? player : player.name}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+   {/* --- Correct Players Panel --- */}
+{activeTab === 'dashboard' && lastAnswered && (
+  <div className="correct-players-panel">
+    <p style={{ color: '#111', fontWeight: 'bold' }}>
+      Q{lastAnswered.index + 1} Correct Answer: <strong>{lastAnswered.question.Answer}</strong>
+    </p>
+
+    {lastAnswered.correctPlayers && lastAnswered.correctPlayers.length > 0 ? (
+      <>
+        <h4>🎉 Players Who Answered Correctly:</h4>
+        <ul>
+          {lastAnswered.correctPlayers.map((player, idx) => (
+            <li key={idx}>
+              {idx + 1}. {typeof player === 'string' ? player : player.name}
+            </li>
+          ))}
+        </ul>
+      </>
+    ) : timer > 0 ? (
+      <p style={{ fontStyle: 'italic', color: '#000' }}>⏳ Waiting for answers...</p>
+    ) : (
+      <p style={{ fontStyle: 'italic', color: '#000' }}>❌ No players answered correctly</p>
+    )}
+  </div>
+)}
+
+
+
 
       <button className="trivia-button logout-button" onClick={handleLogout}>
         Logout
