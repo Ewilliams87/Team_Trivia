@@ -5,6 +5,7 @@ import { BACKEND_URL } from '../config';
 import './player.css';
 import confetti from 'canvas-confetti';
 import { useNavigate } from 'react-router-dom';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 
 // --- Socket setup ---
@@ -22,6 +23,9 @@ const PlayerComponent = () => {
   const [selectedOption, setSelectedOption] = useState('');
   const [isLocked, setIsLocked] = useState(false);
   const navigate = useNavigate();
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalAction, setModalAction] = useState(null); // 'logout'
 
 
 

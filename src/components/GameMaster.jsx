@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
 import './GameMasterDashboard.css';
 import { v4 as uuidv4 } from 'uuid';
+import ConfirmationModal from './ConfirmationModal';
 
 const socket = io(BACKEND_URL);
 
@@ -26,6 +27,8 @@ const GameMasterDashboard = () => {
   const [questionsCache, setQuestionsCache] = useState({});
   const [usedQuestions, setUsedQuestions] = useState(() => JSON.parse(localStorage.getItem('usedQuestions') || '[]'));
   const [masterId] = useState(() => uuidv4());
+  const [modalVisible, setModalVisible] = useState(false);
+const [modalAction, setModalAction] = useState(null); // 'logout' | 'newGame'
 
   const [lastAnswered, setLastAnswered] = useState(() => {
     const saved = localStorage.getItem('lastAnswered');
@@ -168,6 +171,27 @@ const GameMasterDashboard = () => {
     }
   };
 
+// --- Handlers for buttons ---
+const handleNewGameClick = () => {
+  setModalAction('newGame');
+  setModalVisible(true);
+};
+
+const handleLogoutClick = () => {
+  setModalAction('logout');
+  setModalVisible(true);
+};
+
+const handleConfirm = () => {
+  setModalVisible(false);
+  if (modalAction === 'newGame') resetUsedQuestions(); // start a new round
+  if (modalAction === 'logout') handleLogout();          // logout
+};
+
+const handleCancel = () => setModalVisible(false);
+
+
+
   // --- Reset used questions ---
   const resetUsedQuestions = () => {
     setUsedQuestions([]);
@@ -241,7 +265,7 @@ const GameMasterDashboard = () => {
 
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
             <button onClick={sendQuestion}>Send Selected Question</button>
-            <button onClick={resetUsedQuestions}>🔄 New Game</button>
+            <button onClick={handleNewGameClick}>🔄 New Game</button>
           </div>
         </div>
       )}
@@ -310,10 +334,22 @@ const GameMasterDashboard = () => {
 
 
 
-      <button className="trivia-button logout-button" onClick={handleLogout}>
+      <button className="trivia-button logout-button" onClick={handleLogoutClick}>
         Logout
       </button>
+    <ConfirmationModal
+  show={modalVisible}
+  message={
+    modalAction === 'logout'
+      ? 'Are you sure you want to logout?'
+      : 'Are you sure you want to start a new game?'
+  }
+  onConfirm={handleConfirm}
+  onCancel={handleCancel}
+/>
+
     </div>
+    
   );
 };
 
